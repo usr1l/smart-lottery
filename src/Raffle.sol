@@ -15,7 +15,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     // use prefix like Raffe__ to identify custom errors
     error Raffle__SendMoreETHToEnter();
     error Raffle__TransferFailed();
-    error Raffle__NotOpen();
+    error Raffle__RaffleNotOpen();
 
     enum RaffleState {
         OPEN, // 0
@@ -35,6 +35,8 @@ contract Raffle is VRFConsumerBaseV2Plus {
     RaffleState private s_raffleState;
 
     event RaffleEntered(address indexed player);
+    event WinnerPicked(address indexed winner);
+
 
     // need to use constructor of inherited codebase, VRFConsumerBaseV2Plus() tells the compiler to run that constructor first
     constructor(
@@ -47,11 +49,11 @@ contract Raffle is VRFConsumerBaseV2Plus {
     ) VRFConsumerBaseV2Plus(vrfCoordinator) {
         i_entranceFee = _entranceFee;
         i_interval = _interval;
-        s_lastTimeStamp = block.timestamp;
         i_keyHash = gaslane;
         i_subscriptionId = _subscriptionId;
         i_callbackGasLimit = _callbackGasLimit;
 
+        s_lastTimeStamp = block.timestamp;
         s_raffleState = RaffleState.OPEN; // RaffleState(0)
     }
 
@@ -60,6 +62,11 @@ contract Raffle is VRFConsumerBaseV2Plus {
         if (msg.value < i_entranceFee) {
             revert Raffle__SendMoreETHToEnter();
         }
+
+        if (s_raffleState != RaffleState.OPEN) {
+            revert Raffle__RaffleNotOpen();
+        }
+
         s_players.push(payable(msg.sender));
 
         emit RaffleEntered(msg.sender);
@@ -70,6 +77,9 @@ contract Raffle is VRFConsumerBaseV2Plus {
             // Logic to pick a winner
             revert();
         }
+
+        s_raffleState = RaffleState.CALCULATING;
+
         uint256 requestId = s_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: i_keyHash,
@@ -81,16 +91,28 @@ contract Raffle is VRFConsumerBaseV2Plus {
                 extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: false}))
             })
         );
+
+
     }
 
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
+        // if (s_raffleState != RaffleState.OPEN) {
+        //     revert Raffle__RaffleNotOpen();
+        // }
+
         uint256 indexOfWinner = randomWords[0] % s_players.length;
         address payable recentWinner = s_players[indexOfWinner];
         s_recentWinner = recentWinner;
+
+        s_raffleState = RaffleState.OPEN;
+        s_players = new address payable[](0);
+        s_lastTimeStamp = block.timestamp;
+
         (bool success,) = recentWinner.call{value: address(this).balance}("");
         if (!success) {
             revert Raffle__TransferFailed();
         }
+        emit WinnerPicked(recentWinner);
     }
 
     function getEntranceFee() external view returns (uint256) {
