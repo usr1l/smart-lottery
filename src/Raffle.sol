@@ -95,6 +95,11 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
     }
 
+
+    function checkUpkeep(bytes calldata /*checkData*/) public view {
+
+    }
+
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
         // if (s_raffleState != RaffleState.OPEN) {
         //     revert Raffle__RaffleNotOpen();
@@ -107,12 +112,12 @@ contract Raffle is VRFConsumerBaseV2Plus {
         s_raffleState = RaffleState.OPEN;
         s_players = new address payable[](0);
         s_lastTimeStamp = block.timestamp;
+        emit WinnerPicked(recentWinner);
 
         (bool success,) = recentWinner.call{value: address(this).balance}("");
         if (!success) {
             revert Raffle__TransferFailed();
         }
-        emit WinnerPicked(recentWinner);
     }
 
     function getEntranceFee() external view returns (uint256) {
