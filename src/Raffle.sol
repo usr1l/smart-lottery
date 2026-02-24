@@ -16,6 +16,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     error Raffle__SendMoreETHToEnter();
     error Raffle__TransferFailed();
     error Raffle__RaffleNotOpen();
+    error Raffle__UpkeepNotNeeded(uint256 balance, uint256 playersLength, uint256 raffleState);
 
     enum RaffleState {
         OPEN, // 0
@@ -36,7 +37,6 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
     event RaffleEntered(address indexed player);
     event WinnerPicked(address indexed winner);
-
 
     // need to use constructor of inherited codebase, VRFConsumerBaseV2Plus() tells the compiler to run that constructor first
     constructor(
@@ -72,15 +72,19 @@ contract Raffle is VRFConsumerBaseV2Plus {
         emit RaffleEntered(msg.sender);
     }
 
-    function pickWinner() public {
-        if ((block.timestamp - s_lastTimeStamp) < i_interval) {
-            // Logic to pick a winner
-            revert();
+    function performUpkeep(
+        bytes calldata /* performData */
+    )
+        external
+    {
+        (bool upkeepNeeded,) = checkUpkeep("");
+        if (!upkeepNeeded) {
+            revert Raffle__UpkeepNotNeeded(address(this).balance, s_players.length, uint256(s_raffleState)); // OPEN will be 0, CALCULATING will be 1
         }
 
         s_raffleState = RaffleState.CALCULATING;
 
-        uint256 requestId = s_vrfCoordinator.requestRandomWords(
+        s_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: i_keyHash,
                 subId: i_subscriptionId,
@@ -91,16 +95,35 @@ contract Raffle is VRFConsumerBaseV2Plus {
                 extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({nativePayment: false}))
             })
         );
-
-
     }
 
+    function checkUpkeep(
+        bytes memory /*checkData*/
+    )
+        public
+        view
+        returns (
+            bool upkeepNeeded,
+            bytes memory /*performData*/
+        )
+    {
+        bool timeHasPassed = ((block.timestamp - s_lastTimeStamp) >= i_interval);
+        bool isOpen = s_raffleState == RaffleState.OPEN;
+        bool hasBalance = address(this).balance > 0;
+        bool hasPlayers = s_players.length > 0;
+        upkeepNeeded = timeHasPassed && isOpen && hasBalance && hasPlayers;
 
-    function checkUpkeep(bytes calldata /*checkData*/) public view {
-
+        return (upkeepNeeded, "");
     }
 
-    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
+    function fulfillRandomWords(
+        uint256,
+        /*requestId*/
+        uint256[] calldata randomWords
+    )
+        internal
+        override
+    {
         // if (s_raffleState != RaffleState.OPEN) {
         //     revert Raffle__RaffleNotOpen();
         // }
